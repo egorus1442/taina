@@ -1,0 +1,16 @@
+.DS_Store
+.env
+data/
+telegram_sessions/
+*.session
+*.session-journal
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+node_modules/
+dist/
+build/
+
