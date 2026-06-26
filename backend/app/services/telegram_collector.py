@@ -86,14 +86,6 @@ class TelegramCollector:
         message = event.message
         chat = await event.get_chat()
         telegram_chat_id = normalize_telegram_id(chat)
-        chat_title = getattr(chat, "title", None) or getattr(chat, "username", None) or "dialog"
-        logger.info(
-            "TELEGRAM_IN chat_id=%s title=%s message_id=%s text=%s",
-            telegram_chat_id,
-            chat_title,
-            message.id,
-            self._preview(message.message or ""),
-        )
 
         sender_name = None
         try:
@@ -128,12 +120,19 @@ class TelegramCollector:
         try:
             source = get_source_by_telegram_id(db, telegram_chat_id)
             if not source or not source.enabled:
-                logger.info(
+                logger.debug(
                     "Telegram message ignored chat_id=%s reason=%s",
                     telegram_chat_id,
                     "source_not_found" if not source else "source_disabled",
                 )
                 return
+            logger.info(
+                "TELEGRAM_IN chat_id=%s title=%s message_id=%s text=%s",
+                telegram_chat_id,
+                source.title,
+                telegram_message_id,
+                self._preview(text),
+            )
             pipeline = MessagePipeline(event_broker=self.event_broker)
             event = await pipeline.process(
                 db,
