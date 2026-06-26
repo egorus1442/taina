@@ -277,6 +277,14 @@ class AdminSettingsUpdate(BaseModel):
     ai_system_prompt: str | None = Field(default=None, min_length=1)
 
 
+class GeoSuggestionRead(BaseModel):
+    value: str
+    city: str | None = None
+    region: str | None = None
+    fias_id: str | None = None
+    kladr_id: str | None = None
+
+
 class TelegramLinkedChatRead(BaseModel):
     telegram_id: str
     title: str

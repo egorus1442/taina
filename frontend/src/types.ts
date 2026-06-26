@@ -184,6 +184,14 @@ export type TelegramConnectRequest = {
   comments_last_posts_limit: number;
 };
 
+export type GeoSuggestion = {
+  value: string;
+  city?: string | null;
+  region?: string | null;
+  fias_id?: string | null;
+  kladr_id?: string | null;
+};
+
 export type LocationReview = {
   id: number;
   event_id?: number;

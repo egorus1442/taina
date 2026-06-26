@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     yandex_geocoder_api_key: str | None = None
     nominatim_base_url: str = "https://nominatim.openstreetmap.org"
     nominatim_user_agent: str = "telegram-drone-safety-monitor/0.1"
+    photon_base_url: str = "https://photon.komoot.io"
 
     webhook_urls_csv: str = Field(default="", validation_alias="WEBHOOK_URLS")
     webhook_timeout_seconds: float = 5.0

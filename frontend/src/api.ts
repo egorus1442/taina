@@ -1,6 +1,7 @@
 import type {
   EventCluster,
   EventItem,
+  GeoSuggestion,
   AdminSettings,
   AdminSettingsUpdate,
   LocationReviewItem,
@@ -89,5 +90,12 @@ export const api = {
     request<SourceGroup>(`/sources/groups/${groupId}`, {
       method: "PATCH",
       body: JSON.stringify(payload)
-    })
+    }),
+  geoSuggestions: (kind: "city" | "region", query: string, region?: string | null) => {
+    const search = new URLSearchParams({ kind, query });
+    if (region?.trim()) {
+      search.set("region", region.trim());
+    }
+    return request<GeoSuggestion[]>(`/geo/suggestions?${search.toString()}`);
+  }
 };

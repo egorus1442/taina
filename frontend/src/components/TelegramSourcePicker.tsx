@@ -1,7 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Power, RefreshCw, Search, X } from "lucide-react";
 import { api } from "../api";
-import type { Source, SourceGroup, SourceGroupUpdate, TelegramConnectRequest, TelegramDialog } from "../types";
+import type {
+  GeoSuggestion,
+  Source,
+  SourceGroup,
+  SourceGroupUpdate,
+  TelegramConnectRequest,
+  TelegramDialog
+} from "../types";
 
 const CITY_OPTIONS = [
   "Москва",
@@ -189,11 +196,6 @@ export function TelegramSourcePicker({
           <button className="icon-button control-button" type="submit" title="Обновить" disabled={loading}>
             <RefreshCw size={17} />
           </button>
-          <datalist id="city-options">
-            {CITY_OPTIONS.map((option) => (
-              <option key={option} value={option} />
-            ))}
-          </datalist>
         </form>
 
         <div className="dialog-list">
@@ -265,23 +267,45 @@ export function TelegramSourcePicker({
                   ) : (
                     <div className="dialog-connect-stack">
                       <div className="dialog-connect">
-                        <input
-                          list="city-options"
+                        <GeoSuggestInput
+                          kind="city"
                           value={cityByDialog[dialog.telegram_id] || ""}
-                          onChange={(event) =>
+                          region={regionByDialog[dialog.telegram_id] || ""}
+                          fallbackOptions={CITY_OPTIONS}
+                          onChange={(value) =>
                             setCityByDialog((current) => ({
                               ...current,
-                              [dialog.telegram_id]: event.target.value
+                              [dialog.telegram_id]: value
                             }))
                           }
+                          onSelect={(suggestion) => {
+                            const nextCity = suggestion.city || suggestion.value;
+                            setCityByDialog((current) => ({
+                              ...current,
+                              [dialog.telegram_id]: nextCity
+                            }));
+                            if (suggestion.region && !regionByDialog[dialog.telegram_id]?.trim()) {
+                              setRegionByDialog((current) => ({
+                                ...current,
+                                [dialog.telegram_id]: suggestion.region || ""
+                              }));
+                            }
+                          }}
                           placeholder="Город"
                         />
-                        <input
+                        <GeoSuggestInput
+                          kind="region"
                           value={regionByDialog[dialog.telegram_id] || ""}
-                          onChange={(event) =>
+                          onChange={(value) =>
                             setRegionByDialog((current) => ({
                               ...current,
-                              [dialog.telegram_id]: event.target.value
+                              [dialog.telegram_id]: value
+                            }))
+                          }
+                          onSelect={(suggestion) =>
+                            setRegionByDialog((current) => ({
+                              ...current,
+                              [dialog.telegram_id]: suggestion.region || suggestion.value
                             }))
                           }
                           placeholder="Область"
@@ -350,6 +374,114 @@ export function TelegramSourcePicker({
             })}
         </div>
       </section>
+    </div>
+  );
+}
+
+type GeoSuggestInputProps = {
+  kind: "city" | "region";
+  value: string;
+  placeholder: string;
+  region?: string | null;
+  fallbackOptions?: string[];
+  onChange: (value: string) => void;
+  onSelect: (suggestion: GeoSuggestion) => void;
+};
+
+function GeoSuggestInput({
+  kind,
+  value,
+  placeholder,
+  region,
+  fallbackOptions = [],
+  onChange,
+  onSelect
+}: GeoSuggestInputProps) {
+  const [suggestions, setSuggestions] = useState<GeoSuggestion[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const query = value.trim();
+    if (query.length < 2) {
+      setSuggestions([]);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    const timerId = window.setTimeout(() => {
+      api
+        .geoSuggestions(kind, query, region)
+        .then((items) => {
+          if (!cancelled) {
+            setSuggestions(items);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSuggestions([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoading(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [kind, value, region]);
+
+  const fallbackSuggestions = useMemo(
+    () =>
+      fallbackOptions
+        .filter((option) => option.toLocaleLowerCase("ru").includes(value.trim().toLocaleLowerCase("ru")))
+        .slice(0, 6)
+        .map((option): GeoSuggestion => ({ value: option, city: option, region: null })),
+    [fallbackOptions, value]
+  );
+  const visibleSuggestions = suggestions.length ? suggestions : fallbackSuggestions;
+
+  function selectSuggestion(suggestion: GeoSuggestion) {
+    onSelect(suggestion);
+    setOpen(false);
+  }
+
+  return (
+    <div className="geo-suggest">
+      <input
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {open && (visibleSuggestions.length > 0 || loading) && (
+        <div className="geo-suggest-menu">
+          {visibleSuggestions.map((suggestion) => (
+            <button
+              key={`${suggestion.value}-${suggestion.region || ""}`}
+              type="button"
+              className="geo-suggest-option"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectSuggestion(suggestion)}
+            >
+              <span>{suggestion.value}</span>
+              {suggestion.region && kind === "city" && <small>{suggestion.region}</small>}
+            </button>
+          ))}
+          {loading && <div className="geo-suggest-loading">Ищу...</div>}
+        </div>
+      )}
     </div>
   );
 }

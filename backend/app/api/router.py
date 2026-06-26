@@ -1,6 +1,18 @@
 from fastapi import APIRouter
 
-from app.api.routes import clusters, events, health, ingest, location_reviews, messages, settings, sources, telegram, ws
+from app.api.routes import (
+    clusters,
+    events,
+    geo,
+    health,
+    ingest,
+    location_reviews,
+    messages,
+    settings,
+    sources,
+    telegram,
+    ws,
+)
 
 
 api_router = APIRouter()
@@ -8,6 +20,7 @@ api_router.include_router(health.router, tags=["health"])
 api_router.include_router(sources.router, prefix="/sources", tags=["sources"])
 api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
 api_router.include_router(events.router, prefix="/events", tags=["events"])
+api_router.include_router(geo.router, prefix="/geo", tags=["geo"])
 api_router.include_router(clusters.router, prefix="/clusters", tags=["clusters"])
 api_router.include_router(location_reviews.router, prefix="/location-reviews", tags=["location-reviews"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
