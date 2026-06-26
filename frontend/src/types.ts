@@ -97,6 +97,15 @@ export type SourceCreate = {
   enabled: boolean;
 };
 
+export type SourceUpdate = Partial<{
+  title: string;
+  username: string | null;
+  type: string;
+  city: string;
+  region: string | null;
+  enabled: boolean;
+}>;
+
 export type CommentsFetchMode = "off" | "poll_replies" | "linked_chat_realtime" | "hybrid" | string;
 
 export type SourceGroup = {

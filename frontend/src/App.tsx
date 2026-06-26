@@ -16,6 +16,7 @@ import type {
   LocationReviewResolveRequest,
   PipelineMessage,
   Source,
+  SourceUpdate,
   SourceGroup,
   SourceGroupUpdate,
   TelegramConnectRequest
@@ -266,6 +267,12 @@ export function App() {
     setSourceGroups(await api.sourceGroups());
   }
 
+  async function updateSource(sourceId: number, payload: SourceUpdate) {
+    const updated = await api.updateSource(sourceId, payload);
+    setSources((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    setSourceGroups(await api.sourceGroups());
+  }
+
   async function toggleSourceGroup(group: SourceGroup) {
     const updated = await api.updateSourceGroup(group.id, { enabled: !group.enabled });
     setSourceGroups((current) => current.map((item) => (item.id === updated.id ? updated : item)));
@@ -386,6 +393,7 @@ export function App() {
           groups={sourceGroups}
           onToggle={toggleSource}
           onToggleGroup={toggleSourceGroup}
+          onUpdateSource={updateSource}
           onUpdateGroup={updateSourceGroup}
         />
       </aside>

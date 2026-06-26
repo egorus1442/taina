@@ -1,13 +1,16 @@
-import { Link2, PauseCircle, Power, RadioTower } from "lucide-react";
+import { Check, Link2, PauseCircle, Power, RadioTower, Settings2, X } from "lucide-react";
 import { useState } from "react";
-import type { Source, SourceGroup, SourceGroupUpdate } from "../types";
+import { CITY_OPTIONS } from "../geoOptions";
+import { GeoSuggestInput } from "./GeoSuggestInput";
+import type { Source, SourceGroup, SourceGroupUpdate, SourceUpdate } from "../types";
 
 type Props = {
   sources: Source[];
   groups: SourceGroup[];
-  onToggle: (source: Source) => void;
-  onToggleGroup: (group: SourceGroup) => void;
-  onUpdateGroup: (groupId: number, payload: SourceGroupUpdate) => void;
+  onToggle: (source: Source) => Promise<void>;
+  onToggleGroup: (group: SourceGroup) => Promise<void>;
+  onUpdateSource: (sourceId: number, payload: SourceUpdate) => Promise<void>;
+  onUpdateGroup: (groupId: number, payload: SourceGroupUpdate) => Promise<void>;
 };
 
 export function SourceList({
@@ -15,6 +18,7 @@ export function SourceList({
   groups,
   onToggle,
   onToggleGroup,
+  onUpdateSource,
   onUpdateGroup
 }: Props) {
   const chatSources = sources.filter((source) => source.type === "chat");
@@ -32,6 +36,10 @@ export function SourceList({
   );
   const [pairChannelGroupId, setPairChannelGroupId] = useState("");
   const [pairChatSourceId, setPairChatSourceId] = useState("");
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editCity, setEditCity] = useState("");
+  const [editRegion, setEditRegion] = useState("");
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const canCreatePair = Boolean(pairChannelGroupId && pairChatSourceId);
 
   if (!sources.length && !groups.length) {
@@ -103,6 +111,35 @@ export function SourceList({
               </div>
               <span>{sourcePairLabel(group)}</span>
               <small>{sourceGroupMeta(group)}</small>
+              {editingKey === groupEditKey(group) && (
+                <LocationEditor
+                  city={editCity}
+                  region={editRegion}
+                  saving={savingKey === groupEditKey(group)}
+                  onCityChange={setEditCity}
+                  onRegionChange={setEditRegion}
+                  onCancel={() => setEditingKey(null)}
+                  onSave={async () => {
+                    const city = editCity.trim();
+                    if (!city) {
+                      return;
+                    }
+                    const region = editRegion.trim() || null;
+                    const key = groupEditKey(group);
+                    setSavingKey(key);
+                    try {
+                      await onUpdateGroup(group.id, { city, region });
+                      const sourceIds = [group.channel_source_id, group.chat_source_id].filter(
+                        (sourceId): sourceId is number => sourceId != null
+                      );
+                      await Promise.all(sourceIds.map((sourceId) => onUpdateSource(sourceId, { city, region })));
+                      setEditingKey(null);
+                    } finally {
+                      setSavingKey(null);
+                    }
+                  }}
+                />
+              )}
               {group.channel_source && (
                 <div className="source-group-controls">
                   <select
@@ -149,13 +186,26 @@ export function SourceList({
                 </div>
               )}
             </div>
-            <button
-              className={group.enabled ? "icon-button active" : "icon-button"}
-              title={group.enabled ? "Отключить группу" : "Включить группу"}
-              onClick={() => onToggleGroup(group)}
-            >
-              {group.enabled ? <Power size={16} /> : <PauseCircle size={16} />}
-            </button>
+            <div className="source-actions">
+              <button
+                className="icon-button"
+                title="Редактировать город и область"
+                onClick={() => {
+                  setEditingKey(groupEditKey(group));
+                  setEditCity(group.city);
+                  setEditRegion(group.region || "");
+                }}
+              >
+                <Settings2 size={16} />
+              </button>
+              <button
+                className={group.enabled ? "icon-button active" : "icon-button"}
+                title={group.enabled ? "Отключить группу" : "Включить группу"}
+                onClick={() => onToggleGroup(group)}
+              >
+                {group.enabled ? <Power size={16} /> : <PauseCircle size={16} />}
+              </button>
+            </div>
           </article>
         ))}
       </div>
@@ -183,18 +233,118 @@ export function SourceList({
             <small>
               {source.processed_count} сообщений · {source.event_count} событий
             </small>
+            {editingKey === sourceEditKey(source) && (
+              <LocationEditor
+                city={editCity}
+                region={editRegion}
+                saving={savingKey === sourceEditKey(source)}
+                onCityChange={setEditCity}
+                onRegionChange={setEditRegion}
+                onCancel={() => setEditingKey(null)}
+                onSave={async () => {
+                  const city = editCity.trim();
+                  if (!city) {
+                    return;
+                  }
+                  const region = editRegion.trim() || null;
+                  const key = sourceEditKey(source);
+                  setSavingKey(key);
+                  try {
+                    await onUpdateSource(source.id, { city, region });
+                    setEditingKey(null);
+                  } finally {
+                    setSavingKey(null);
+                  }
+                }}
+              />
+            )}
           </div>
-          <button
-            className={source.enabled ? "icon-button active" : "icon-button"}
-            title={source.enabled ? "Отключить" : "Включить"}
-            onClick={() => onToggle(source)}
-          >
-            {source.enabled ? <Power size={16} /> : <PauseCircle size={16} />}
-          </button>
+          <div className="source-actions">
+            <button
+              className="icon-button"
+              title="Редактировать город и область"
+              onClick={() => {
+                setEditingKey(sourceEditKey(source));
+                setEditCity(source.city);
+                setEditRegion(source.region || "");
+              }}
+            >
+              <Settings2 size={16} />
+            </button>
+            <button
+              className={source.enabled ? "icon-button active" : "icon-button"}
+              title={source.enabled ? "Отключить" : "Включить"}
+              onClick={() => onToggle(source)}
+            >
+              {source.enabled ? <Power size={16} /> : <PauseCircle size={16} />}
+            </button>
+          </div>
         </article>
       ))}
     </div>
   );
+}
+
+type LocationEditorProps = {
+  city: string;
+  region: string;
+  saving: boolean;
+  onCityChange: (value: string) => void;
+  onRegionChange: (value: string) => void;
+  onSave: () => Promise<void>;
+  onCancel: () => void;
+};
+
+function LocationEditor({
+  city,
+  region,
+  saving,
+  onCityChange,
+  onRegionChange,
+  onSave,
+  onCancel
+}: LocationEditorProps) {
+  return (
+    <div className="source-location-editor">
+      <GeoSuggestInput
+        kind="city"
+        value={city}
+        region={region}
+        fallbackOptions={CITY_OPTIONS}
+        onChange={onCityChange}
+        onSelect={(suggestion) => {
+          onCityChange(suggestion.city || suggestion.value);
+          if (suggestion.region && !region.trim()) {
+            onRegionChange(suggestion.region);
+          }
+        }}
+        placeholder="Город"
+      />
+      <GeoSuggestInput
+        kind="region"
+        value={region}
+        onChange={onRegionChange}
+        onSelect={(suggestion) => onRegionChange(suggestion.region || suggestion.value)}
+        placeholder="Область"
+      />
+      <div className="source-location-actions">
+        <button className="icon-button active" type="button" title="Сохранить" disabled={saving || !city.trim()} onClick={onSave}>
+          <Check size={16} />
+        </button>
+        <button className="icon-button" type="button" title="Отменить" disabled={saving} onClick={onCancel}>
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function sourceEditKey(source: Source) {
+  return `source:${source.id}`;
+}
+
+function groupEditKey(group: SourceGroup) {
+  return `group:${group.id}`;
 }
 
 function commentsModeLabel(mode: string) {

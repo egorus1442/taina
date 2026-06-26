@@ -12,6 +12,7 @@ import type {
   SourceCreate,
   SourceGroup,
   SourceGroupUpdate,
+  SourceUpdate,
   TelegramConnectRequest,
   TelegramDialog
 } from "./types";
@@ -85,6 +86,11 @@ export const api = {
     request<Source>(`/sources/${source.id}`, {
       method: "PATCH",
       body: JSON.stringify({ enabled: !source.enabled })
+    }),
+  updateSource: (sourceId: number, payload: SourceUpdate) =>
+    request<Source>(`/sources/${sourceId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
     }),
   updateSourceGroup: (groupId: number, payload: SourceGroupUpdate) =>
     request<SourceGroup>(`/sources/groups/${groupId}`, {
