@@ -7,10 +7,23 @@ from sqlalchemy.orm import Session
 from app import models
 from app.core.config import settings
 from app.models import Source
-from app.repositories import create_source, get_source_by_telegram_id, update_source
-from app.repositories import get_source
-from app.repositories import upsert_source_group_for_sources
-from app.schemas import SourceCreate, SourceUpdate, TelegramConnectRequest, TelegramDialogRead, TelegramLinkedChatRead
+from app.repositories import (
+    create_source,
+    get_source,
+    get_source_by_telegram_id,
+    update_source,
+    upsert_source_group_for_sources,
+)
+from app.schemas import (
+    SourceCreate,
+    SourceUpdate,
+    TelegramBulkConnectItemRead,
+    TelegramBulkConnectRead,
+    TelegramBulkConnectRequest,
+    TelegramConnectRequest,
+    TelegramDialogRead,
+    TelegramLinkedChatRead,
+)
 from app.services.telegram_ids import normalize_telegram_id
 
 
@@ -57,6 +70,146 @@ def classify_dialog_type(entity) -> str:
             return "chat"
         return "channel"
     return "dialog"
+
+
+def normalize_channel_reference(value: str) -> str | None:
+    normalized = value.strip().rstrip("/")
+    if not normalized:
+        return None
+    normalized = normalized.removeprefix("https://").removeprefix("http://")
+    normalized = normalized.removeprefix("www.").removeprefix("t.me/")
+    normalized = normalized.removeprefix("telegram.me/").lstrip("@")
+    normalized = normalized.split("?", 1)[0].strip("/")
+    if not normalized or "/" in normalized or normalized.startswith("+"):
+        return None
+    if not all(character.isalnum() or character == "_" for character in normalized):
+        return None
+    return normalized
+
+
+async def bulk_connect_channels(
+    *,
+    client,
+    db: Session,
+    payload: TelegramBulkConnectRequest,
+) -> TelegramBulkConnectRead:
+    requested: dict[str, str] = {}
+    invalid: list[str] = []
+    for raw_value in payload.channels:
+        username = normalize_channel_reference(raw_value)
+        if username is None:
+            if raw_value.strip():
+                invalid.append(raw_value.strip())
+            continue
+        requested.setdefault(username.casefold(), username)
+
+    dialogs_by_username = {}
+    async for dialog in client.iter_dialogs(limit=None):
+        entity = dialog.entity
+        username = getattr(entity, "username", None)
+        if username and username.casefold() in requested:
+            dialogs_by_username[username.casefold()] = dialog
+
+    items: list[TelegramBulkConnectItemRead] = [
+        TelegramBulkConnectItemRead(
+            channel=value,
+            status="failed",
+            detail="Некорректная ссылка или приватное приглашение без @username",
+        )
+        for value in invalid
+    ]
+    connected = 0
+    updated = 0
+
+    for key, username in requested.items():
+        dialog = dialogs_by_username.get(key)
+        if dialog is None:
+            items.append(
+                TelegramBulkConnectItemRead(
+                    channel=f"@{username}",
+                    status="failed",
+                    detail="Канал не найден среди диалогов авторизованного аккаунта",
+                )
+            )
+            continue
+
+        entity = dialog.entity
+        if classify_dialog_type(entity) != "channel":
+            items.append(
+                TelegramBulkConnectItemRead(
+                    channel=f"@{username}",
+                    status="failed",
+                    detail="Ссылка ведёт не на канал",
+                )
+            )
+            continue
+
+        telegram_id = normalize_telegram_id(entity)
+        existing = get_source_by_telegram_id(db, telegram_id)
+        title = dialog.name or getattr(entity, "title", None) or username
+        source = connect_dialog(
+            db,
+            TelegramConnectRequest(
+                telegram_id=telegram_id,
+                title=title,
+                username=getattr(entity, "username", None),
+                type="channel",
+                city=payload.city,
+                region=payload.region,
+                enabled=True,
+                monitor_channel_posts=True,
+                monitor_chat_messages=False,
+                monitor_channel_comments=True,
+                comments_fetch_mode="poll_replies",
+                comments_poll_interval_seconds=15,
+                comments_last_posts_limit=5,
+            ),
+        )
+        latest_id = getattr(getattr(dialog, "message", None), "id", None)
+        if latest_id is not None:
+            source.last_message_id = max(source.last_message_id or 0, int(latest_id))
+            source.updated_at = models.utcnow()
+            db.add(source)
+            db.commit()
+            db.refresh(source)
+
+        upsert_source_group_for_sources(
+            db,
+            title=title,
+            channel_source=source,
+            chat_source=None,
+            city=payload.city,
+            region=payload.region,
+            enabled=True,
+            monitor_channel_posts=True,
+            monitor_chat_messages=False,
+            monitor_channel_comments=True,
+            comments_fetch_mode="poll_replies",
+            comments_poll_interval_seconds=15,
+            comments_last_posts_limit=5,
+        )
+        status = "updated" if existing else "connected"
+        if existing:
+            updated += 1
+        else:
+            connected += 1
+        items.append(
+            TelegramBulkConnectItemRead(
+                channel=f"@{username}",
+                status=status,
+                source_id=source.id,
+                telegram_id=telegram_id,
+                title=title,
+            )
+        )
+
+    return TelegramBulkConnectRead(
+        total=len(items),
+        connected=connected,
+        updated=updated,
+        failed=sum(item.status == "failed" for item in items),
+        items=items,
+    )
 
 
 async def list_dialogs_from_client(

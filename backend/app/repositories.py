@@ -1,7 +1,7 @@
-from datetime import datetime
 import json
+from datetime import datetime
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -13,7 +13,6 @@ from app.services.admin_settings import (
     SETTINGS_KEY_AI_SYSTEM_PROMPT,
     SETTINGS_KEY_KEYWORD_PATTERNS,
 )
-
 
 COMMENT_FETCH_MODES = {"off", "poll_replies", "linked_chat_realtime", "hybrid"}
 
@@ -105,19 +104,45 @@ def list_source_groups(db: Session) -> list[models.SourceGroup]:
     return list(db.scalars(stmt))
 
 
-def list_enabled_comment_source_groups(db: Session) -> list[models.SourceGroup]:
+def get_enabled_comment_source_group_for_channel(
+    db: Session,
+    *,
+    telegram_id: str,
+) -> models.SourceGroup | None:
     stmt = (
         select(models.SourceGroup)
-        .options(
-            joinedload(models.SourceGroup.channel_source),
-            joinedload(models.SourceGroup.chat_source),
-        )
+        .join(models.SourceGroup.channel_source)
+        .options(joinedload(models.SourceGroup.channel_source))
+        .where(models.SourceGroup.enabled.is_(True))
+        .where(models.SourceGroup.monitor_channel_comments.is_(True))
+        .where(models.SourceGroup.comments_fetch_mode.in_(("poll_replies", "hybrid")))
+        .where(models.Source.telegram_id == telegram_id)
+    )
+    return db.scalar(stmt)
+
+
+def get_next_comment_source_group_for_safety_scan(
+    db: Session,
+    *,
+    checked_before: datetime,
+) -> models.SourceGroup | None:
+    stmt = (
+        select(models.SourceGroup)
+        .options(joinedload(models.SourceGroup.channel_source))
         .where(models.SourceGroup.enabled.is_(True))
         .where(models.SourceGroup.monitor_channel_comments.is_(True))
         .where(models.SourceGroup.comments_fetch_mode.in_(("poll_replies", "hybrid")))
         .where(models.SourceGroup.channel_source_id.is_not(None))
+        .where(
+            or_(
+                models.SourceGroup.comments_last_checked_at.is_(None),
+                models.SourceGroup.comments_last_checked_at <= checked_before,
+            )
+        )
+        .order_by(models.SourceGroup.comments_last_checked_at.asc())
+        .limit(1)
     )
-    return list(db.scalars(stmt))
+    return db.scalar(stmt)
 
 
 def get_source_group(db: Session, group_id: int) -> models.SourceGroup | None:
@@ -210,35 +235,29 @@ def get_comment_thread_state(
     return db.scalar(stmt)
 
 
-def get_recorded_comment_thread_max_id(
+def list_due_comment_thread_states(
     db: Session,
     *,
-    source_group_id: int,
-    channel_source_id: int,
-    channel_post_id: int,
-) -> int:
-    rows = db.scalars(
-        select(models.Message.raw_json).where(models.Message.source_id == channel_source_id)
+    reference_time: datetime,
+    limit: int,
+) -> list[models.CommentThreadState]:
+    stmt = (
+        select(models.CommentThreadState)
+        .options(
+            joinedload(models.CommentThreadState.source_group),
+            joinedload(models.CommentThreadState.channel_source),
+        )
+        .where(models.CommentThreadState.status == "active")
+        .where(
+            or_(
+                models.CommentThreadState.next_poll_at.is_(None),
+                models.CommentThreadState.next_poll_at <= reference_time,
+            )
+        )
+        .order_by(models.CommentThreadState.next_poll_at.asc())
+        .limit(limit)
     )
-    max_comment_id = 0
-    for raw_json in rows:
-        if not raw_json:
-            continue
-        try:
-            payload = json.loads(raw_json)
-        except json.JSONDecodeError:
-            continue
-        if (
-            payload.get("source_group_id") != source_group_id
-            or payload.get("channel_post_id") != channel_post_id
-        ):
-            continue
-        try:
-            comment_id = int(payload.get("comment_id") or 0)
-        except (TypeError, ValueError):
-            continue
-        max_comment_id = max(max_comment_id, comment_id)
-    return max_comment_id
+    return list(db.scalars(stmt))
 
 
 def upsert_comment_thread_state(
@@ -250,6 +269,8 @@ def upsert_comment_thread_state(
     discussion_chat_id: str | None,
     discussion_root_msg_id: int | None,
     last_comment_id: int,
+    post_date: datetime | None = None,
+    next_poll_at: datetime | None = None,
 ) -> models.CommentThreadState:
     state = get_comment_thread_state(
         db,
@@ -265,16 +286,46 @@ def upsert_comment_thread_state(
             discussion_chat_id=discussion_chat_id,
             discussion_root_msg_id=discussion_root_msg_id,
             last_comment_id=last_comment_id,
+            post_date=post_date,
+            next_poll_at=next_poll_at,
+            status="active",
         )
     else:
         state.discussion_chat_id = discussion_chat_id
         state.discussion_root_msg_id = discussion_root_msg_id
         state.last_comment_id = max(state.last_comment_id or 0, last_comment_id)
+        state.post_date = state.post_date or post_date
+        if next_poll_at is not None and state.next_poll_at is None:
+            state.next_poll_at = next_poll_at
+        state.status = "active"
         state.updated_at = models.utcnow()
     db.add(state)
     db.commit()
     db.refresh(state)
     return state
+
+
+def update_comment_thread_poll_state(
+    db: Session,
+    *,
+    state_id: int,
+    last_comment_id: int,
+    last_activity_at: datetime | None,
+    next_poll_at: datetime | None,
+    consecutive_idle_polls: int,
+    status: str,
+) -> None:
+    state = db.get(models.CommentThreadState, state_id)
+    if state is None:
+        return
+    state.last_comment_id = max(state.last_comment_id or 0, last_comment_id)
+    state.last_activity_at = last_activity_at
+    state.next_poll_at = next_poll_at
+    state.consecutive_idle_polls = consecutive_idle_polls
+    state.status = status
+    state.updated_at = models.utcnow()
+    db.add(state)
+    db.commit()
 
 
 def upsert_source_group_for_sources(
@@ -321,7 +372,9 @@ def _validate_source_group_payload(db: Session, payload: dict) -> None:
     from fastapi import HTTPException
 
     if not payload.get("channel_source_id") and not payload.get("chat_source_id"):
-        raise HTTPException(status_code=422, detail="Source group must include a channel, a chat, or both")
+        raise HTTPException(
+            status_code=422, detail="Source group must include a channel, a chat, or both"
+        )
 
     mode = payload.get("comments_fetch_mode") or "off"
     if mode not in COMMENT_FETCH_MODES:
@@ -334,13 +387,17 @@ def _validate_source_group_payload(db: Session, payload: dict) -> None:
         if not channel:
             raise HTTPException(status_code=404, detail="Channel source not found")
         if channel.type != "channel":
-            raise HTTPException(status_code=422, detail="channel_source_id must reference a channel source")
+            raise HTTPException(
+                status_code=422, detail="channel_source_id must reference a channel source"
+            )
     if chat_source_id:
         chat = get_source(db, int(chat_source_id))
         if not chat:
             raise HTTPException(status_code=404, detail="Chat source not found")
         if chat.type != "chat":
-            raise HTTPException(status_code=422, detail="chat_source_id must reference a chat source")
+            raise HTTPException(
+                status_code=422, detail="chat_source_id must reference a chat source"
+            )
     if mode == "linked_chat_realtime" and not chat_source_id:
         raise HTTPException(status_code=422, detail="linked_chat_realtime requires chat_source_id")
     if mode == "poll_replies" and not channel_source_id:
@@ -731,7 +788,9 @@ def attach_event_to_cluster(
 
 def refresh_event_cluster_rollups(db: Session, cluster: models.EventCluster) -> None:
     source_count = db.scalar(
-        select(func.count(func.distinct(models.Event.source_id))).where(models.Event.cluster_id == cluster.id)
+        select(func.count(func.distinct(models.Event.source_id))).where(
+            models.Event.cluster_id == cluster.id
+        )
     )
     first_seen_at, last_seen_at = db.execute(
         select(func.min(models.Event.created_at), func.max(models.Event.created_at)).where(
@@ -740,7 +799,8 @@ def refresh_event_cluster_rollups(db: Session, cluster: models.EventCluster) -> 
     ).one()
     cluster.source_count = int(source_count or 0)
     cluster.event_count = int(
-        db.scalar(select(func.count(models.Event.id)).where(models.Event.cluster_id == cluster.id)) or 0
+        db.scalar(select(func.count(models.Event.id)).where(models.Event.cluster_id == cluster.id))
+        or 0
     )
     if first_seen_at:
         cluster.first_seen_at = first_seen_at
@@ -840,10 +900,10 @@ def list_events(
     stmt = select(models.Event).options(
         joinedload(models.Event.source),
         joinedload(models.Event.message),
-            joinedload(models.Event.classification),
-            joinedload(models.Event.cluster),
-            joinedload(models.Event.location_review),
-        )
+        joinedload(models.Event.classification),
+        joinedload(models.Event.cluster),
+        joinedload(models.Event.location_review),
+    )
     if city:
         stmt = stmt.where(models.Event.city == city)
     if risk_level:
@@ -859,12 +919,17 @@ def _max_risk_level(current: str, next_value: str) -> str:
 
 def _cluster_confidence(db: Session, cluster: models.EventCluster) -> float:
     max_event_confidence = float(
-        db.scalar(select(func.max(models.Event.confidence)).where(models.Event.cluster_id == cluster.id)) or 0.0
+        db.scalar(
+            select(func.max(models.Event.confidence)).where(models.Event.cluster_id == cluster.id)
+        )
+        or 0.0
     )
     source_bonus = min(max(cluster.source_count - 1, 0) * 0.08, 0.24)
     event_bonus = min(max(cluster.event_count - 1, 0) * 0.03, 0.12)
     single_source_penalty = 0.1 if cluster.source_count <= 1 else 0.0
-    return max(0.0, min(max_event_confidence + source_bonus + event_bonus - single_source_penalty, 1.0))
+    return max(
+        0.0, min(max_event_confidence + source_bonus + event_bonus - single_source_penalty, 1.0)
+    )
 
 
 def _cluster_status(cluster: models.EventCluster) -> str:

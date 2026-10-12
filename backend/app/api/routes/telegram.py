@@ -2,8 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas import SourceRead, TelegramConnectRequest, TelegramDialogRead
+from app.schemas import (
+    SourceRead,
+    TelegramBulkConnectRead,
+    TelegramBulkConnectRequest,
+    TelegramConnectRequest,
+    TelegramDialogRead,
+)
 from app.services.telegram_dialogs import (
+    bulk_connect_channels,
     connect_dialog_with_linked_chat,
     list_dialogs_from_client,
     temporary_telegram_client,
@@ -42,6 +49,25 @@ async def get_telegram_dialogs(
                 query=query,
                 include_users=include_users,
             )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/bulk-connect", response_model=TelegramBulkConnectRead)
+async def post_telegram_bulk_connect(
+    request: Request,
+    payload: TelegramBulkConnectRequest,
+    db: Session = Depends(get_db),
+) -> TelegramBulkConnectRead:
+    collector = getattr(request.app.state, "collector", None)
+    client = getattr(collector, "client", None)
+
+    try:
+        if client:
+            return await bulk_connect_channels(client=client, db=db, payload=payload)
+
+        async with temporary_telegram_client() as temporary_client:
+            return await bulk_connect_channels(client=temporary_client, db=db, payload=payload)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

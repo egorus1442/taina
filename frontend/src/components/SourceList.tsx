@@ -84,7 +84,7 @@ export function SourceList({
                   monitor_chat_messages: true,
                   monitor_channel_comments: true,
                   comments_fetch_mode: "linked_chat_realtime",
-                  comments_poll_interval_seconds: 5,
+                  comments_poll_interval_seconds: 15,
                   comments_last_posts_limit: 5
                 });
                 setPairChannelGroupId("");
@@ -150,7 +150,7 @@ export function SourceList({
                         monitor_channel_comments: mode !== "off",
                         comments_fetch_mode: mode,
                         monitor_chat_messages: mode === "linked_chat_realtime",
-                        comments_poll_interval_seconds: 5,
+                        comments_poll_interval_seconds: 15,
                         comments_last_posts_limit: 5
                       });
                     }}

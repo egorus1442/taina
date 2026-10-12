@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Any
@@ -7,11 +8,12 @@ import httpx
 from app.core.config import settings
 from app.services.admin_settings import DEFAULT_AI_SYSTEM_PROMPT
 
-
 logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = DEFAULT_AI_SYSTEM_PROMPT
+_OPENROUTER_SEMAPHORE = asyncio.Semaphore(settings.openrouter_max_concurrency)
+_OPENROUTER_RETRY_DELAYS_SECONDS = (1, 3)
 
 
 class OpenRouterClient:
@@ -55,16 +57,29 @@ class OpenRouterClient:
             "Content-Type": "application/json",
         }
 
-        try:
-            async with httpx.AsyncClient(timeout=settings.openrouter_timeout_seconds) as client:
-                response = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
-                response.raise_for_status()
-        except Exception:
-            logger.warning("OpenRouter request failed; using fallback classifier", exc_info=True)
+        response = None
+        async with _OPENROUTER_SEMAPHORE:
+            for attempt in range(len(_OPENROUTER_RETRY_DELAYS_SECONDS) + 1):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=settings.openrouter_timeout_seconds
+                    ) as client:
+                        response = await client.post(
+                            f"{self.base_url}/chat/completions",
+                            json=payload,
+                            headers=headers,
+                        )
+                        response.raise_for_status()
+                    break
+                except Exception:
+                    if attempt >= len(_OPENROUTER_RETRY_DELAYS_SECONDS):
+                        logger.warning(
+                            "OpenRouter request failed; using fallback classifier", exc_info=True
+                        )
+                        return self._fallback_classify(text=text, city=city), None
+                    await asyncio.sleep(_OPENROUTER_RETRY_DELAYS_SECONDS[attempt])
+
+        if response is None:
             return self._fallback_classify(text=text, city=city), None
 
         raw = response.text
@@ -111,9 +126,13 @@ class OpenRouterClient:
 
     def _fallback_classify(self, *, text: str, city: str) -> dict[str, Any]:
         lower = text.lower()
-        related = any(term in lower for term in ["дрон", "бпла", "беспилот", "жужж", "шахед", "герань"])
+        related = any(
+            term in lower for term in ["дрон", "бпла", "беспилот", "жужж", "шахед", "герань"]
+        )
         sound_only = any(term in lower for term in ["шум", "гул", "жужж", "слыш"])
-        explosion = any(term in lower for term in ["взрыв", "хлоп", "бах", "пво", "сирен", "тревог"])
+        explosion = any(
+            term in lower for term in ["взрыв", "хлоп", "бах", "пво", "сирен", "тревог"]
+        )
         location_text = self._extract_simple_location(text)
         precision = self._guess_precision(location_text)
         return {

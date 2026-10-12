@@ -49,7 +49,7 @@ class SourceGroupBase(BaseModel):
     monitor_chat_messages: bool = True
     monitor_channel_comments: bool = False
     comments_fetch_mode: str = "off"
-    comments_poll_interval_seconds: int = Field(default=5, ge=5, le=3600)
+    comments_poll_interval_seconds: int = Field(default=15, ge=5, le=3600)
     comments_last_posts_limit: int = Field(default=5, ge=1, le=20)
 
 
@@ -330,5 +330,59 @@ class TelegramConnectRequest(BaseModel):
     monitor_chat_messages: bool = True
     monitor_channel_comments: bool = False
     comments_fetch_mode: str = "off"
-    comments_poll_interval_seconds: int = Field(default=5, ge=5, le=3600)
+    comments_poll_interval_seconds: int = Field(default=15, ge=5, le=3600)
     comments_last_posts_limit: int = Field(default=5, ge=1, le=20)
+
+
+class TelegramBulkConnectRequest(BaseModel):
+    channels: list[str] = Field(min_length=1, max_length=500)
+    city: str = Field(min_length=1)
+    region: str | None = None
+
+
+class TelegramBulkConnectItemRead(BaseModel):
+    channel: str
+    status: str
+    detail: str | None = None
+    source_id: int | None = None
+    telegram_id: str | None = None
+    title: str | None = None
+
+
+class TelegramBulkConnectRead(BaseModel):
+    total: int
+    connected: int
+    updated: int
+    failed: int
+    items: list[TelegramBulkConnectItemRead]
+
+
+class TelegramRuntimeStatusRead(BaseModel):
+    enabled: bool
+    running: bool
+    connected: bool
+    account: str | None = None
+    started_at: datetime | None = None
+    last_update_at: datetime | None = None
+    last_message_at: datetime | None = None
+    source_poll_last_at: datetime | None = None
+    comments_poll_last_at: datetime | None = None
+    flood_wait_until: datetime | None = None
+    flood_wait_count: int = 0
+    rate_limited: bool = False
+    last_error: str | None = None
+
+
+class SystemStatusRead(BaseModel):
+    status: str
+    checked_at: datetime
+    telegram: TelegramRuntimeStatusRead
+    enabled_sources: int
+    enabled_comment_sources: int
+    active_comment_threads: int
+    due_comment_threads: int
+    messages_last_hour: int
+    events_last_hour: int
+    failed_webhooks_last_24h: int
+    disk_free_gb: float
+    last_stored_message_at: datetime | None = None

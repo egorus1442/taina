@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileSearch, Layers, MapPin, Plus, Radio, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { Activity, FileSearch, Layers, MapPin, Plus, Radio, ShieldAlert, SlidersHorizontal } from "lucide-react";
 import { api, wsUrl } from "./api";
 import { AdminSettingsPanel } from "./components/AdminSettingsPanel";
 import { ClusterFeed } from "./components/ClusterFeed";
@@ -7,6 +7,7 @@ import { EventMap } from "./components/EventMap";
 import { PipelineMessagesPage } from "./components/PipelineMessagesPage";
 import { ReviewQueue } from "./components/ReviewQueue";
 import { SourceList } from "./components/SourceList";
+import { SystemPage } from "./components/SystemPage";
 import { TelegramSourcePicker } from "./components/TelegramSourcePicker";
 import type {
   EventCluster,
@@ -19,6 +20,7 @@ import type {
   SourceUpdate,
   SourceGroup,
   SourceGroupUpdate,
+  SystemStatus,
   TelegramConnectRequest
 } from "./types";
 
@@ -30,13 +32,16 @@ export function App() {
   const [locationReviews, setLocationReviews] = useState<LocationReviewItem[]>([]);
   const [pipelineMessages, setPipelineMessages] = useState<PipelineMessage[]>([]);
   const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [selectedClusterId, setSelectedClusterId] = useState<number | null>(null);
   const [clusterEvents, setClusterEvents] = useState<EventItem[]>([]);
   const [loadingClusterEvents, setLoadingClusterEvents] = useState(false);
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [loadingPipelineMessages, setLoadingPipelineMessages] = useState(false);
   const [loadingSettings, setLoadingSettings] = useState(false);
-  const [activePage, setActivePage] = useState<"map" | "reviews" | "pipeline">("map");
+  const [loadingSystemStatus, setLoadingSystemStatus] = useState(false);
+  const [systemError, setSystemError] = useState<string | null>(null);
+  const [activePage, setActivePage] = useState<"map" | "reviews" | "pipeline" | "system">("map");
   const [rightTab, setRightTab] = useState<"clusters" | "settings">("clusters");
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +106,18 @@ export function App() {
       setError(nextError instanceof Error ? nextError.message : "Не удалось загрузить диагностику сообщений");
     } finally {
       setLoadingPipelineMessages(false);
+    }
+  }
+
+  async function loadSystemStatus() {
+    setLoadingSystemStatus(true);
+    try {
+      setSystemStatus(await api.systemStatus());
+      setSystemError(null);
+    } catch (nextError) {
+      setSystemError(nextError instanceof Error ? nextError.message : "Не удалось проверить систему");
+    } finally {
+      setLoadingSystemStatus(false);
     }
   }
 
@@ -220,6 +237,15 @@ export function App() {
       return;
     }
     loadPipelineMessages();
+  }, [activePage]);
+
+  useEffect(() => {
+    if (activePage !== "system") {
+      return;
+    }
+    loadSystemStatus();
+    const intervalId = window.setInterval(loadSystemStatus, 5000);
+    return () => window.clearInterval(intervalId);
   }, [activePage]);
 
   useEffect(() => {
@@ -379,6 +405,14 @@ export function App() {
             Сообщения
             <span>{pipelineMessages.length}</span>
           </button>
+          <button
+            className={activePage === "system" ? "sidebar-nav-button active" : "sidebar-nav-button"}
+            type="button"
+            onClick={() => setActivePage("system")}
+          >
+            <Activity size={17} />
+            Система
+          </button>
         </nav>
 
         <div className="section-title">
@@ -422,6 +456,14 @@ export function App() {
           loading={loadingPipelineMessages}
           error={error}
           onRefresh={loadPipelineMessages}
+        />
+      ) : activePage === "system" ? (
+        <SystemPage
+          status={systemStatus}
+          loading={loadingSystemStatus}
+          error={systemError}
+          onRefresh={loadSystemStatus}
+          onImported={refreshSourcesAndGroups}
         />
       ) : (
         <>

@@ -100,7 +100,7 @@ export function TelegramSourcePicker({
         monitor_chat_messages: dialog.type === "chat" || collectionMode === "linked_chat_realtime",
         monitor_channel_comments: isChannel && collectionMode !== "off",
         comments_fetch_mode: collectionMode,
-        comments_poll_interval_seconds: 5,
+        comments_poll_interval_seconds: 15,
         comments_last_posts_limit: 5
       });
       await loadDialogs(query);
@@ -138,7 +138,7 @@ export function TelegramSourcePicker({
       monitor_channel_comments: mode !== "off",
       comments_fetch_mode: mode,
       monitor_chat_messages: mode === "linked_chat_realtime",
-      comments_poll_interval_seconds: 5,
+      comments_poll_interval_seconds: 15,
       comments_last_posts_limit: 5
     });
   }
@@ -220,7 +220,7 @@ export function TelegramSourcePicker({
                             <small className="linked-chat-line">Группа комментариев: {group.chat_source.title}</small>
                           )}
                           {group.comments_fetch_mode === "poll_replies" && (
-                            <small>Опрос: каждые 5 секунд · последние 5 постов</small>
+                            <small>Адаптивный опрос: от 15 секунд для активных веток</small>
                           )}
                           {!group.chat_source_id && (
                             <small>Для режима из группы сначала создай пару канал + чат в списке источников.</small>
@@ -336,7 +336,7 @@ export function TelegramSourcePicker({
                             </select>
                           )}
                           {(collectionModeByDialog[dialog.telegram_id] || "off") === "poll_replies" && (
-                            <small>Опрос: каждые 5 секунд · последние 5 постов</small>
+                            <small>Адаптивный опрос: от 15 секунд для активных веток</small>
                           )}
                         </div>
                       )}

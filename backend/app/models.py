@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -7,7 +7,7 @@ from app.core.database import Base
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Source(Base):
@@ -47,7 +47,9 @@ class SourceGroup(Base):
     channel_source_id: Mapped[int | None] = mapped_column(
         ForeignKey("sources.id"), nullable=True, index=True
     )
-    chat_source_id: Mapped[int | None] = mapped_column(ForeignKey("sources.id"), nullable=True, index=True)
+    chat_source_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sources.id"), nullable=True, index=True
+    )
     city: Mapped[str] = mapped_column(String(128))
     region: Mapped[str | None] = mapped_column(String(128), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -55,9 +57,11 @@ class SourceGroup(Base):
     monitor_chat_messages: Mapped[bool] = mapped_column(Boolean, default=True)
     monitor_channel_comments: Mapped[bool] = mapped_column(Boolean, default=False)
     comments_fetch_mode: Mapped[str] = mapped_column(String(32), default="off")
-    comments_poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=5)
+    comments_poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=15)
     comments_last_posts_limit: Mapped[int] = mapped_column(Integer, default=5)
-    comments_last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    comments_last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -89,8 +93,20 @@ class CommentThreadState(Base):
     discussion_chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     discussion_root_msg_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_comment_id: Mapped[int] = mapped_column(Integer, default=0)
+    post_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_activity_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    next_poll_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    consecutive_idle_polls: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    source_group: Mapped[SourceGroup] = relationship()
+    channel_source: Mapped[Source] = relationship()
 
 
 class AppSetting(Base):
@@ -105,7 +121,9 @@ class AppSetting(Base):
 
 class Message(Base):
     __tablename__ = "messages"
-    __table_args__ = (UniqueConstraint("source_id", "telegram_message_id", name="uq_source_message"),)
+    __table_args__ = (
+        UniqueConstraint("source_id", "telegram_message_id", name="uq_source_message"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), index=True)
@@ -163,7 +181,9 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    cluster_id: Mapped[int | None] = mapped_column(ForeignKey("event_clusters.id"), nullable=True, index=True)
+    cluster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_clusters.id"), nullable=True, index=True
+    )
     source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), index=True)
     message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), unique=True, index=True)
     classification_id: Mapped[int] = mapped_column(ForeignKey("classifications.id"))
@@ -186,7 +206,9 @@ class Event(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     review_status: Mapped[str] = mapped_column(String(32), default="auto_approved", index=True)
     review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
 
     source: Mapped[Source] = relationship(back_populates="events")
     message: Mapped[Message] = relationship(back_populates="event")

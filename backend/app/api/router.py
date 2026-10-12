@@ -10,6 +10,7 @@ from app.api.routes import (
     messages,
     settings,
     sources,
+    system,
     telegram,
     ws,
 )
@@ -24,6 +25,7 @@ api_router.include_router(geo.router, prefix="/geo", tags=["geo"])
 api_router.include_router(clusters.router, prefix="/clusters", tags=["clusters"])
 api_router.include_router(location_reviews.router, prefix="/location-reviews", tags=["location-reviews"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
+api_router.include_router(system.router, prefix="/system", tags=["system"])
 api_router.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
 api_router.include_router(telegram.router, prefix="/telegram", tags=["telegram"])
 api_router.include_router(ws.router, prefix="/ws", tags=["websocket"])

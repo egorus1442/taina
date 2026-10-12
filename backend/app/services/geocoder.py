@@ -1,4 +1,6 @@
+import asyncio
 import json
+from collections import OrderedDict
 from typing import Any
 
 import httpx
@@ -7,6 +9,12 @@ from app.core.config import settings
 from app.services.geocoding_attempts import GeocodingAttempt
 from app.services.geocoding_validator import GeocodingResultValidator
 from app.services.location_resolver import ResolvedLocation
+
+_GEOCODER_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_GEOCODER_CACHE_LOCK = asyncio.Lock()
+_NOMINATIM_LOCK = asyncio.Lock()
+_NOMINATIM_LAST_REQUEST_AT = 0.0
+_YANDEX_SEMAPHORE = asyncio.Semaphore(settings.yandex_geocoder_max_concurrency)
 
 
 class Geocoder:
@@ -77,9 +85,52 @@ class Geocoder:
         )
 
     async def _search_attempt(self, attempt: GeocodingAttempt, *, provider: str) -> dict[str, Any]:
+        cache_key = self._cache_key(attempt=attempt, provider=provider)
+        cached = await self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
         if provider == "yandex":
-            return await self._yandex_candidates(attempt)
-        return await self._nominatim_candidates(attempt)
+            async with _YANDEX_SEMAPHORE:
+                result = await self._yandex_candidates(attempt)
+        else:
+            result = await self._rate_limited_nominatim(attempt)
+
+        if not result.get("error"):
+            await self._cache_put(cache_key, result)
+        return result
+
+    async def _rate_limited_nominatim(self, attempt: GeocodingAttempt) -> dict[str, Any]:
+        global _NOMINATIM_LAST_REQUEST_AT
+
+        async with _NOMINATIM_LOCK:
+            loop = asyncio.get_running_loop()
+            elapsed = loop.time() - _NOMINATIM_LAST_REQUEST_AT
+            wait_for = settings.nominatim_min_interval_seconds - elapsed
+            if wait_for > 0:
+                await asyncio.sleep(wait_for)
+            result = await self._nominatim_candidates(attempt)
+            _NOMINATIM_LAST_REQUEST_AT = loop.time()
+            return result
+
+    def _cache_key(self, *, attempt: GeocodingAttempt, provider: str) -> str:
+        normalized_query = " ".join(attempt.query.casefold().split())
+        return f"{provider}:{normalized_query}"
+
+    async def _cache_get(self, key: str) -> dict[str, Any] | None:
+        async with _GEOCODER_CACHE_LOCK:
+            value = _GEOCODER_CACHE.get(key)
+            if value is None:
+                return None
+            _GEOCODER_CACHE.move_to_end(key)
+            return value
+
+    async def _cache_put(self, key: str, value: dict[str, Any]) -> None:
+        async with _GEOCODER_CACHE_LOCK:
+            _GEOCODER_CACHE[key] = value
+            _GEOCODER_CACHE.move_to_end(key)
+            while len(_GEOCODER_CACHE) > settings.geocoder_cache_size:
+                _GEOCODER_CACHE.popitem(last=False)
 
     async def _nominatim_candidates(self, attempt: GeocodingAttempt) -> dict[str, Any]:
         headers = {"User-Agent": settings.nominatim_user_agent}

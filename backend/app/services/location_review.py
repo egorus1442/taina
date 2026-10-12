@@ -1,9 +1,8 @@
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 from app import models
 from app.services.location_resolver import ResolvedLocation
-
 
 LOCATION_PREPOSITIONS = r"(?:в|во|на|у|около|возле|над)"
 EVENT_WORDS = [
@@ -22,6 +21,10 @@ EVENT_WORDS = [
     "сирен",
     "тревог",
 ]
+CITY_ALIASES = {
+    "санкт-петербург": {"питер", "питера", "питере", "питером", "спб"},
+}
+
 
 @dataclass(frozen=True)
 class LocationReviewDecision:
@@ -78,12 +81,15 @@ class LocationReviewDecider:
                 or resolved_location.query
                 or self._join(source.region, source.city, location_text),
             )
-        if location_text and (geocoding_payload.get("lat") is None or geocoding_payload.get("lon") is None):
+        if location_text and (
+            geocoding_payload.get("lat") is None or geocoding_payload.get("lon") is None
+        ):
             return LocationReviewDecision(
                 needs_review=True,
                 reason="geocoding_failed_for_extracted_location",
                 original_location_text=location_text,
-                suggested_query=resolved_location.query or self._join(source.region, source.city, location_text),
+                suggested_query=resolved_location.query
+                or self._join(source.region, source.city, location_text),
             )
         if location_text and not location_matches_formatted_address(
             location_text,
@@ -93,7 +99,8 @@ class LocationReviewDecider:
                 needs_review=True,
                 reason="geocoding_mismatch_for_extracted_location",
                 original_location_text=location_text,
-                suggested_query=resolved_location.query or self._join(source.region, source.city, location_text),
+                suggested_query=resolved_location.query
+                or self._join(source.region, source.city, location_text),
             )
 
         return LocationReviewDecision(needs_review=False)
@@ -115,7 +122,9 @@ class LocationReviewDecider:
 
 def extract_explicit_location(text: str) -> str | None:
     normalized = " ".join(text.split())
-    match = re.search(rf"(?:^|\s){LOCATION_PREPOSITIONS}\s+", normalized, flags=re.IGNORECASE | re.UNICODE)
+    match = re.search(
+        rf"(?:^|\s){LOCATION_PREPOSITIONS}\s+", normalized, flags=re.IGNORECASE | re.UNICODE
+    )
     if not match:
         return None
 
@@ -157,7 +166,8 @@ def explicit_location_is_source_city(location_text: str, source_city: str) -> bo
         _normalize_location_token(token)
         for token in re.findall(r"[A-Za-zА-ЯЁа-яё0-9-]{2,}", location_text)
     }
-    return city_key in location_tokens
+    accepted_names = {city_key, *CITY_ALIASES.get(city_key, set())}
+    return not accepted_names.isdisjoint(location_tokens)
 
 
 def _normalize_location_token(value: str) -> str:

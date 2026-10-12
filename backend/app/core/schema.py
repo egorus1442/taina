@@ -30,7 +30,7 @@ def ensure_database_schema() -> None:
                         monitor_chat_messages BOOLEAN NOT NULL DEFAULT 1,
                         monitor_channel_comments BOOLEAN NOT NULL DEFAULT 0,
                         comments_fetch_mode VARCHAR(32) NOT NULL DEFAULT 'off',
-                        comments_poll_interval_seconds INTEGER NOT NULL DEFAULT 5,
+                        comments_poll_interval_seconds INTEGER NOT NULL DEFAULT 15,
                         comments_last_posts_limit INTEGER NOT NULL DEFAULT 5,
                         comments_last_checked_at DATETIME,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -42,7 +42,9 @@ def ensure_database_schema() -> None:
                     """
                 )
             )
-            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_source_groups_id ON source_groups (id)"))
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_source_groups_id ON source_groups (id)")
+            )
             connection.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_source_groups_channel_source_id "
@@ -50,7 +52,9 @@ def ensure_database_schema() -> None:
                 )
             )
             connection.execute(
-                text("CREATE INDEX IF NOT EXISTS ix_source_groups_chat_source_id ON source_groups (chat_source_id)")
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_source_groups_chat_source_id ON source_groups (chat_source_id)"
+                )
             )
         group_count = connection.execute(text("SELECT COUNT(*) FROM source_groups")).scalar() or 0
         source_count = connection.execute(text("SELECT COUNT(*) FROM sources")).scalar() or 0
@@ -85,7 +89,7 @@ def ensure_database_schema() -> None:
                         CASE WHEN type = 'chat' THEN 1 ELSE 0 END,
                         0,
                         'off',
-                        5,
+                        15,
                         5,
                         CURRENT_TIMESTAMP,
                         CURRENT_TIMESTAMP
@@ -105,6 +109,11 @@ def ensure_database_schema() -> None:
                         discussion_chat_id VARCHAR(128),
                         discussion_root_msg_id INTEGER,
                         last_comment_id INTEGER NOT NULL DEFAULT 0,
+                        post_date DATETIME,
+                        last_activity_at DATETIME,
+                        next_poll_at DATETIME,
+                        consecutive_idle_polls INTEGER NOT NULL DEFAULT 0,
+                        status VARCHAR(32) NOT NULL DEFAULT 'active',
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (id),
@@ -120,7 +129,9 @@ def ensure_database_schema() -> None:
                 )
             )
             connection.execute(
-                text("CREATE INDEX IF NOT EXISTS ix_comment_thread_states_id ON comment_thread_states (id)")
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_comment_thread_states_id ON comment_thread_states (id)"
+                )
             )
             connection.execute(
                 text(
@@ -140,6 +151,18 @@ def ensure_database_schema() -> None:
                     "ON comment_thread_states (channel_post_id)"
                 )
             )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_comment_thread_states_next_poll_at "
+                    "ON comment_thread_states (next_poll_at)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_comment_thread_states_status "
+                    "ON comment_thread_states (status)"
+                )
+            )
         if "app_settings" not in table_names:
             connection.execute(
                 text(
@@ -156,8 +179,55 @@ def ensure_database_schema() -> None:
                     """
                 )
             )
-            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_app_settings_id ON app_settings (id)"))
-            connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_app_settings_key ON app_settings (key)"))
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_app_settings_id ON app_settings (id)")
+            )
+            connection.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS ix_app_settings_key ON app_settings (key)")
+            )
+
+    thread_columns = {
+        column["name"] for column in inspect(engine).get_columns("comment_thread_states")
+    }
+    with engine.begin() as connection:
+        if "post_date" not in thread_columns:
+            connection.execute(
+                text("ALTER TABLE comment_thread_states ADD COLUMN post_date DATETIME")
+            )
+        if "last_activity_at" not in thread_columns:
+            connection.execute(
+                text("ALTER TABLE comment_thread_states ADD COLUMN last_activity_at DATETIME")
+            )
+        if "next_poll_at" not in thread_columns:
+            connection.execute(
+                text("ALTER TABLE comment_thread_states ADD COLUMN next_poll_at DATETIME")
+            )
+        if "consecutive_idle_polls" not in thread_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE comment_thread_states "
+                    "ADD COLUMN consecutive_idle_polls INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+        if "status" not in thread_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE comment_thread_states "
+                    "ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'active'"
+                )
+            )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_comment_thread_states_next_poll_at "
+                "ON comment_thread_states (next_poll_at)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_comment_thread_states_status "
+                "ON comment_thread_states (status)"
+            )
+        )
 
     if "events" not in table_names:
         return
@@ -166,11 +236,17 @@ def ensure_database_schema() -> None:
     with engine.begin() as connection:
         if "cluster_id" not in event_columns:
             connection.execute(text("ALTER TABLE events ADD COLUMN cluster_id INTEGER"))
-            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_events_cluster_id ON events (cluster_id)"))
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_events_cluster_id ON events (cluster_id)")
+            )
         if "review_status" not in event_columns:
             connection.execute(
-                text("ALTER TABLE events ADD COLUMN review_status VARCHAR(32) NOT NULL DEFAULT 'auto_approved'")
+                text(
+                    "ALTER TABLE events ADD COLUMN review_status VARCHAR(32) NOT NULL DEFAULT 'auto_approved'"
+                )
             )
-            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_events_review_status ON events (review_status)"))
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_events_review_status ON events (review_status)")
+            )
         if "review_reason" not in event_columns:
             connection.execute(text("ALTER TABLE events ADD COLUMN review_reason TEXT"))

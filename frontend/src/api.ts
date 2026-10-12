@@ -13,6 +13,9 @@ import type {
   SourceGroup,
   SourceGroupUpdate,
   SourceUpdate,
+  SystemStatus,
+  TelegramBulkConnectRequest,
+  TelegramBulkConnectResult,
   TelegramConnectRequest,
   TelegramDialog
 } from "./types";
@@ -74,6 +77,12 @@ export const api = {
   },
   connectTelegramDialog: (payload: TelegramConnectRequest) =>
     request<Source[]>("/telegram/connect", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  systemStatus: () => request<SystemStatus>("/system/status"),
+  bulkConnectTelegram: (payload: TelegramBulkConnectRequest) =>
+    request<TelegramBulkConnectResult>("/telegram/bulk-connect", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

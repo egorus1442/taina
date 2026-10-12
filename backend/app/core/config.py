@@ -30,22 +30,33 @@ class Settings(BaseSettings):
     telegram_api_hash: str | None = None
     telegram_session_name: str = "drone_monitor"
     telegram_poll_enabled_sources: bool = True
-    telegram_poll_interval_seconds: float = 60.0
-    telegram_poll_limit_per_source: int = 20
+    telegram_poll_interval_seconds: float = 300.0
+    telegram_poll_limit_per_source: int = 100
+    telegram_poll_max_pages_per_source: int = 10
+    telegram_comments_safety_scan_seconds: int = 600
+    telegram_comments_max_concurrency: int = 2
+    telegram_comments_due_batch_size: int = 20
+    telegram_comments_max_per_poll: int = 500
+    telegram_comments_min_interval_seconds: int = 15
 
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "anthropic/claude-haiku-4.5"
     openrouter_timeout_seconds: float = 30.0
+    openrouter_max_concurrency: int = 8
 
     geocoder_provider: str = "nominatim"
     yandex_geocoder_api_key: str | None = None
     nominatim_base_url: str = "https://nominatim.openstreetmap.org"
     nominatim_user_agent: str = "telegram-drone-safety-monitor/0.1"
     photon_base_url: str = "https://photon.komoot.io"
+    nominatim_min_interval_seconds: float = 1.05
+    yandex_geocoder_max_concurrency: int = 3
+    geocoder_cache_size: int = 2_000
 
     webhook_urls_csv: str = Field(default="", validation_alias="WEBHOOK_URLS")
     webhook_timeout_seconds: float = 5.0
+    webhook_max_concurrency: int = 5
 
     @property
     def cors_origins(self) -> list[str]:

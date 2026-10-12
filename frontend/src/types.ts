@@ -193,6 +193,60 @@ export type TelegramConnectRequest = {
   comments_last_posts_limit: number;
 };
 
+export type TelegramBulkConnectRequest = {
+  channels: string[];
+  city: string;
+  region?: string | null;
+};
+
+export type TelegramBulkConnectItem = {
+  channel: string;
+  status: "connected" | "updated" | "failed" | string;
+  detail?: string | null;
+  source_id?: number | null;
+  telegram_id?: string | null;
+  title?: string | null;
+};
+
+export type TelegramBulkConnectResult = {
+  total: number;
+  connected: number;
+  updated: number;
+  failed: number;
+  items: TelegramBulkConnectItem[];
+};
+
+export type TelegramRuntimeStatus = {
+  enabled: boolean;
+  running: boolean;
+  connected: boolean;
+  account?: string | null;
+  started_at?: string | null;
+  last_update_at?: string | null;
+  last_message_at?: string | null;
+  source_poll_last_at?: string | null;
+  comments_poll_last_at?: string | null;
+  flood_wait_until?: string | null;
+  flood_wait_count: number;
+  rate_limited: boolean;
+  last_error?: string | null;
+};
+
+export type SystemStatus = {
+  status: "ok" | "warning" | "error" | "disabled" | string;
+  checked_at: string;
+  telegram: TelegramRuntimeStatus;
+  enabled_sources: number;
+  enabled_comment_sources: number;
+  active_comment_threads: number;
+  due_comment_threads: number;
+  messages_last_hour: number;
+  events_last_hour: number;
+  failed_webhooks_last_24h: number;
+  disk_free_gb: number;
+  last_stored_message_at?: string | null;
+};
+
 export type GeoSuggestion = {
   value: string;
   city?: string | null;
