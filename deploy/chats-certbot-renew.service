@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew the TLS certificate for Chats OSINT
+
+[Service]
+Type=oneshot
+ExecStart=/opt/chats-certbot/bin/certbot renew --quiet --deploy-hook "/usr/bin/docker exec chats-osint-gateway nginx -s reload"
