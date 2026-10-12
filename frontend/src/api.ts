@@ -20,10 +20,10 @@ import type {
   TelegramDialog
 } from "./types";
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api";
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 export function wsUrl(): string {
-  const api = new URL(API_BASE);
+  const api = new URL(API_BASE, window.location.origin);
   api.protocol = api.protocol === "https:" ? "wss:" : "ws:";
   api.pathname = `${api.pathname.replace(/\/$/, "")}/ws/events`;
   return api.toString();
