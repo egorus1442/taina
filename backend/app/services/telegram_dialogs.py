@@ -166,7 +166,9 @@ async def bulk_connect_channels(
             ),
         )
         latest_id = getattr(getattr(dialog, "message", None), "id", None)
-        if latest_id is not None:
+        # Set a baseline only for a new source. Reconnecting an existing one must
+        # not advance its cursor past messages the collector has not read yet.
+        if not existing and latest_id is not None:
             source.last_message_id = max(source.last_message_id or 0, int(latest_id))
             source.updated_at = models.utcnow()
             db.add(source)

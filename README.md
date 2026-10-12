@@ -38,6 +38,8 @@ Healthcheck: http://localhost:8000/api/health
 
 По умолчанию Telegram collector и OpenRouter отключены, чтобы проект можно было поднять сразу. Для разработки backend использует локальную эвристику, если `OPENROUTER_API_KEY` не задан.
 
+Для переноса на Ubuntu-сервер, сохранения локальной базы и Telegram-сессии, а также подключения всех 92 каналов из `telegram_channels.txt` см. [DEPLOY.md](DEPLOY.md).
+
 ## Локальный запуск backend
 
 ```bash
