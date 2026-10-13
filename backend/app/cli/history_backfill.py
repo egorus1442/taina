@@ -744,6 +744,7 @@ async def make_client(session_name: str | None = None):
         settings.telegram_api_id,
         settings.telegram_api_hash,
         flood_sleep_threshold=900,
+        proxy=settings.telegram_proxy,
     )
     await client.connect()
     if not await client.is_user_authorized():

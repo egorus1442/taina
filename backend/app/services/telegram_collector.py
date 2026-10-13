@@ -62,6 +62,9 @@ class TelegramCollector:
             settings.telegram_session_name,
             settings.telegram_api_id,
             settings.telegram_api_hash,
+            proxy=settings.telegram_proxy,
+            connection_retries=None,
+            retry_delay=5,
         )
         await self.client.start()
         self._running = True

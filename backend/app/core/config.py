@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_session_name: str = "drone_monitor"
+    telegram_proxy_host: str | None = None
+    telegram_proxy_port: int = 0
+    telegram_proxy_username: str | None = None
+    telegram_proxy_password: SecretStr | None = None
     telegram_poll_enabled_sources: bool = True
     telegram_poll_interval_seconds: float = 300.0
     telegram_poll_limit_per_source: int = 100
@@ -65,6 +69,23 @@ class Settings(BaseSettings):
     @property
     def webhook_urls(self) -> list[str]:
         return self._parse_csv_list(self.webhook_urls_csv)
+
+    @property
+    def telegram_proxy(self) -> dict[str, str | int] | None:
+        if not self.telegram_proxy_host:
+            return None
+        if not 1 <= self.telegram_proxy_port <= 65535:
+            raise ValueError("TELEGRAM_PROXY_PORT must be between 1 and 65535")
+        proxy: dict[str, str | int] = {
+            "proxy_type": "http",
+            "addr": self.telegram_proxy_host,
+            "port": self.telegram_proxy_port,
+        }
+        if self.telegram_proxy_username:
+            proxy["username"] = self.telegram_proxy_username
+        if self.telegram_proxy_password:
+            proxy["password"] = self.telegram_proxy_password.get_secret_value()
+        return proxy
 
     def _parse_csv_list(self, value: str | None) -> list[str]:
         if not value:

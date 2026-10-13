@@ -48,6 +48,7 @@ async def temporary_telegram_client() -> AsyncIterator:
         settings.telegram_session_name,
         settings.telegram_api_id,
         settings.telegram_api_hash,
+        proxy=settings.telegram_proxy,
     )
     await client.connect()
     try:
